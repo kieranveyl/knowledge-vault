@@ -3,7 +3,8 @@ import { createApp } from "./http/app";
 import { createKnowledgeApiApp, type ApiAdapterDependencies } from "../adapters/api/elysia.adapter";
 
 // Import adapters directly
-import { createMemoryStorageAdapter } from "../adapters/storage/memory.adapter";
+import { createPostgresStorageAdapter } from "../adapters/storage/postgres.adapter";
+import { createDatabasePool } from "../adapters/storage/database";
 import { createOramaSearchAdapter } from "../adapters/search/orama.adapter";
 import { createMarkdownParsingAdapter } from "../adapters/parsing/markdown.adapter";
 import { createLocalObservabilityAdapter } from "../adapters/observability/local.adapter";
@@ -16,8 +17,16 @@ const port = Number.parseInt(Bun.env.PORT ?? "3001", 10); // Port 3001 to avoid 
 async function createDependencies(): Promise<ApiAdapterDependencies> {
 	console.log("🔧 Setting up application dependencies...");
 	
-	// Create adapters (using memory storage for now)
-	const storage = createMemoryStorageAdapter();
+	// Create database pool and storage adapter
+	console.log("🗄️ Connecting to PostgreSQL database...");
+	const db = createDatabasePool();
+	
+	// Test database connection
+	await Effect.runPromise(db.testConnection());
+	console.log("✅ Database connection verified");
+	
+	// Create adapters (using PostgreSQL storage)
+	const storage = createPostgresStorageAdapter(db);
 	const indexing = createOramaSearchAdapter();
 	const parsing = createMarkdownParsingAdapter();
 	const observability = createLocalObservabilityAdapter();

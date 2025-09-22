@@ -2,7 +2,7 @@
 
 # internal
 .docs/
-repomix-output.xml
+#repomix-output.xml
 
 # dependencies
 /node_modules

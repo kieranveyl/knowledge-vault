@@ -4,7 +4,7 @@ services:
     postgres:
         image: docker.io/postgres:16-alpine
         environment:
-            POSTGRES_DB: electric
+            POSTGRES_DB: knowledge
             POSTGRES_USER: postgres
             POSTGRES_PASSWORD: password
         ports:
@@ -26,7 +26,7 @@ services:
     electric:
         image: docker.io/electricsql/electric:latest
         environment:
-            DATABASE_URL: postgresql://postgres:password@postgres:5432/electric?sslmode=disable
+            DATABASE_URL: postgresql://postgres:password@postgres:5432/knowledge?sslmode=disable
             # Not suitable for production. Only use insecure mode in development or if you've otherwise secured the Electric API.
             # See https://electric-sql.com/docs/guides/security
             ELECTRIC_INSECURE: true

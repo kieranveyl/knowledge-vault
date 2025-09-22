@@ -15,7 +15,7 @@ import type {
 	ObservabilityPort,
 } from "../../services";
 
-import type {
+import {
 	SaveDraftRequest,
 	PublishRequest,
 	RollbackRequest,
@@ -27,7 +27,7 @@ import type {
 	ListSnapshotsRequest,
 	RestoreSnapshotRequest,
 	ResolveAnchorRequest,
-	ApiErrorResponse,
+	type ApiErrorResponse,
 } from "../../schema/api";
 
 import {
@@ -58,9 +58,94 @@ interface SessionContext {
 }
 
 /**
+ * Maps error type to HTTP status code
+ */
+function getHttpStatusFromError(error: unknown): number {
+	if (typeof error === "object" && error !== null && "_tag" in error) {
+		const taggedError = error as { _tag: string };
+		
+		switch (taggedError._tag) {
+			case "NotFound":
+				return 404;
+			case "ValidationError":
+				return 400;
+			case "ConflictError":
+				return 409;
+			case "IndexingFailure":
+				return 502; // Bad Gateway
+			case "RateLimitExceeded":
+				return 429; // Too Many Requests
+			default:
+				return 500; // Internal Server Error
+		}
+	}
+	return 500;
+}
+
+/**
+ * Maps database error to storage error (duplicated from postgres adapter)
+ */
+function mapDatabaseError(error: any): any {
+  switch (error._tag) {
+    case "ConnectionFailed":
+      return { _tag: "StorageIOError", cause: error };
+    case "QueryFailed":
+      // Check for UNIQUE CONSTRAINT violations (conflicts)
+      if (
+        error.reason.includes("duplicate key value violates unique constraint") ||
+        error.reason.includes("unique constraint") ||
+        error.reason.includes("duplicate") ||
+        error.reason.includes("already exists")
+      ) {
+        return { _tag: "ConflictError", message: error.reason };
+      }
+      
+      // Check for NOT FOUND errors
+      if (
+        error.reason.includes("not found") ||
+        error.reason.includes("does not exist")
+      ) {
+        return { _tag: "NotFound", entity: "Unknown", id: "unknown" };
+      }
+      
+      // Check for FOREIGN KEY violations
+      if (
+        error.reason.includes("foreign key") ||
+        error.reason.includes("violates foreign key constraint")
+      ) {
+        return { _tag: "ValidationError", errors: [error.reason] };
+      }
+      
+      return { _tag: "StorageIOError", cause: error };
+    case "TransactionFailed":
+      return { _tag: "StorageIOError", cause: error };
+    default:
+      return { _tag: "StorageIOError", cause: error };
+  }
+}
+
+/**
  * API error mapping from domain errors to HTTP responses
  */
 function mapToApiError(error: unknown): ApiErrorResponse {
+	// Handle FiberFailure with JSON message (Effect errors)
+	if (error instanceof Error && error.message.startsWith("{")) {
+		try {
+			const parsedError = JSON.parse(error.message);
+			if (parsedError._tag) {
+				// If it's a DatabaseError, map it to StorageError first
+				if (parsedError._tag === "QueryFailed" || parsedError._tag === "ConnectionFailed" || parsedError._tag === "TransactionFailed") {
+					const storageError = mapDatabaseError(parsedError);
+					return mapToApiError(storageError);
+				}
+				// Otherwise treat as already a domain error
+				return mapToApiError(parsedError);
+			}
+		} catch {
+			// Fall through to default error handling
+		}
+	}
+
 	if (typeof error === "object" && error !== null && "_tag" in error) {
 		const taggedError = error as { _tag: string; [key: string]: any };
 		
@@ -118,6 +203,38 @@ function mapToApiError(error: unknown): ApiErrorResponse {
 			message: error instanceof Error ? error.message : "Unknown error",
 		},
 	};
+}
+
+/**
+ * Throws an HTTP error with proper status code
+ */
+function throwHttpError(error: unknown, set?: { status?: number }): never {
+	const apiError = mapToApiError(error);
+	
+	// Extract the domain error from the API error response to get the correct status code
+	let domainError = error;
+	if (error instanceof Error && error.message.startsWith("{")) {
+		try {
+			const parsedError = JSON.parse(error.message);
+			if (parsedError._tag) {
+				if (parsedError._tag === "QueryFailed" || parsedError._tag === "ConnectionFailed" || parsedError._tag === "TransactionFailed") {
+					domainError = mapDatabaseError(parsedError);
+				} else {
+					domainError = parsedError;
+				}
+			}
+		} catch {
+			// Use original error
+		}
+	}
+	
+	const statusCode = getHttpStatusFromError(domainError);
+	
+	if (set) {
+		set.status = statusCode;
+	}
+	
+	throw new Error(JSON.stringify(apiError));
 }
 
 /**
@@ -182,7 +299,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 		// Draft operations
 		.post(
 			"/drafts",
-			async ({ body, headers }) => {
+			async ({ body, headers, set }) => {
 				const sessionContext = getOrCreateSession(headers["x-session-id"]);
 				checkRateLimit(sessionContext.rate_limiter, "draft");
 
@@ -191,7 +308,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 					const response = await Effect.runPromise(deps.storage.saveDraft(request));
 					return response;
 				} catch (error) {
-					throw new Error(JSON.stringify(mapToApiError(error)));
+					throwHttpError(error, set);
 				}
 			},
 			{
@@ -206,14 +323,14 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 			},
 		)
 
-		.get("/drafts/:note_id", async ({ params }) => {
+		.get("/drafts/:note_id", async ({ params, set }) => {
 			try {
 				const draft = await Effect.runPromise(
 					deps.storage.getDraft(params.note_id as any),
 				);
 				return draft;
 			} catch (error) {
-				throw new Error(JSON.stringify(mapToApiError(error)));
+				throwHttpError(error, set);
 			}
 		})
 
@@ -343,14 +460,14 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 
 		.post(
 			"/collections",
-			async ({ body }) => {
+			async ({ body, set }) => {
 				try {
 					const collection = await Effect.runPromise(
 						deps.storage.createCollection(body.name, body.description),
 					);
 					return collection;
 				} catch (error) {
-					throw new Error(JSON.stringify(mapToApiError(error)));
+					throwHttpError(error, set);
 				}
 			},
 			{
