@@ -8,7 +8,6 @@ import {
 	validateVersionTransition,
 	validateCollectionMembership,
 	quickValidation,
-	DEFAULT_COLLECTION_CONSTRAINTS,
 } from "../domain/validation";
 import type { Note, Draft, Collection, Version, NoteMetadata } from "../schema/entities";
 

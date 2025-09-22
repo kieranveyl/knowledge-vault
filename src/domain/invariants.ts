@@ -16,7 +16,6 @@ import type {
 	Session,
 	NoteId,
 	VersionId,
-	CollectionId,
 } from "../schema/entities";
 
 /**
@@ -148,7 +147,7 @@ export function checkVersionImmutabilityInvariant(
  */
 export function checkRollbackImmutabilityInvariant(
 	versions: readonly Version[],
-	publications: readonly Publication[],
+	_publications: readonly Publication[],
 ): InvariantCheckResult {
 	const violations: InvariantViolation[] = [];
 

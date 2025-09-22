@@ -452,7 +452,7 @@ export function validateVersionTransition(
  * @returns Validation result
  */
 export function validateCollectionMembership(
-  noteId: NoteId,
+  _noteId: NoteId,
   collectionIds: CollectionId[],
   constraints: CollectionConstraints = DEFAULT_COLLECTION_CONSTRAINTS,
 ): ValidationResult {

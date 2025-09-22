@@ -98,7 +98,7 @@ export function extractStructurePath(content: string): StructurePath {
     }
   }
 
-  return ("/" + headings.filter(Boolean).join("/")) as StructurePath;
+  return (`/${headings.filter(Boolean).join("/")}`) as StructurePath;
 }
 
 /**

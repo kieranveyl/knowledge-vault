@@ -14,10 +14,13 @@
 	},
 	"dependencies": {
 		"@effect/schema": "^0.68.1",
+		"@electric-sql/client": "^1.0.10",
 		"dotenv": "^17.2.1",
 		"effect": "^3.17.7",
+		"electric-sql": "^0.12.1",
 		"elysia": "^1.1.0",
-		"orama": "^2.0.6"
+		"orama": "^2.0.6",
+		"ulid": "^3.0.1"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.2.4",

@@ -5,7 +5,6 @@ import {
 	CollectionId,
 	VersionId,
 	Note,
-	Version,
 	Collection,
 	Anchor,
 } from "../schema/entities";
