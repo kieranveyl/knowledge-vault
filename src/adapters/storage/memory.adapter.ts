@@ -347,14 +347,55 @@ export class MemoryStorageAdapter implements StoragePort {
 			return version;
 		}).pipe(Effect.catchAll(() => storageError(notFound("CurrentVersion", note_id))));
 
-	// Publication operations (placeholder implementations)
+	// Publication operations with visibility event emission
 	readonly publishVersion = (
 		request: PublishRequest,
 	): Effect.Effect<PublishResponse, StorageError> =>
-		Effect.sync(() => {
-			// This would integrate with the visibility pipeline
+		Effect.gen(this, function* () {
+			if (!this.state.notes.has(request.note_id)) {
+				yield* Effect.fail(notFound("Note", request.note_id));
+			}
+
+			// Get current draft content
+			const draft = this.state.drafts.get(request.note_id);
+			if (!draft) {
+				yield* Effect.fail(notFound("Draft", request.note_id));
+			}
+
+			// Create version from draft
+			const version = yield* this.createVersion(
+				request.note_id,
+				draft.body_md,
+				draft.metadata,
+				request.label || "minor",
+			);
+
+			// Create publication record
+			const publicationId = `pub_${ulid()}` as PublicationId;
+			const publication: Publication = {
+				id: publicationId,
+				note_id: request.note_id,
+				version_id: version.id,
+				collections: request.collections,
+				published_at: new Date(),
+				label: request.label,
+			};
+
+			this.state.publications.set(publicationId, publication);
+
+			// TODO: Emit VisibilityEvent here for pipeline processing
+			// const visibilityEvent: VisibilityEvent = {
+			//   event_id: `evt_${ulid()}`,
+			//   timestamp: new Date(),
+			//   schema_version: "1.0.0",
+			//   type: "VisibilityEvent",
+			//   version_id: version.id,
+			//   op: "publish",
+			//   collections: request.collections,
+			// };
+
 			return {
-				version_id: `ver_${ulid()}` as VersionId,
+				version_id: version.id,
 				note_id: request.note_id,
 				status: "version_created" as const,
 				estimated_searchable_in: 5000,
@@ -364,10 +405,39 @@ export class MemoryStorageAdapter implements StoragePort {
 	readonly rollbackToVersion = (
 		request: RollbackRequest,
 	): Effect.Effect<RollbackResponse, StorageError> =>
-		Effect.sync(() => {
-			// This would create a new version referencing the target
+		Effect.gen(this, function* () {
+			if (!this.state.notes.has(request.note_id)) {
+				yield* Effect.fail(notFound("Note", request.note_id));
+			}
+
+			// Get target version
+			const targetVersion = this.state.versions.get(request.target_version_id);
+			if (!targetVersion) {
+				yield* Effect.fail(notFound("Version", request.target_version_id));
+			}
+
+			// Create new version referencing the target (SPEC: rollback creates new Version)
+			const newVersion = yield* this.createVersion(
+				request.note_id,
+				targetVersion.content_md,
+				targetVersion.metadata,
+				"major", // Rollback is considered major change
+				request.target_version_id,
+			);
+
+			// TODO: Emit VisibilityEvent for rollback
+			// const visibilityEvent: VisibilityEvent = {
+			//   event_id: `evt_${ulid()}`,
+			//   timestamp: new Date(),
+			//   schema_version: "1.0.0", 
+			//   type: "VisibilityEvent",
+			//   version_id: newVersion.id,
+			//   op: "rollback",
+			//   collections: [], // Would need to get from existing publications
+			// };
+
 			return {
-				new_version_id: `ver_${ulid()}` as VersionId,
+				new_version_id: newVersion.id,
 				note_id: request.note_id,
 				target_version_id: request.target_version_id,
 				status: "version_created" as const,
