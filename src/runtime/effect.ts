@@ -5,5 +5,4 @@ import { Effect } from "effect";
  * In production this will be replaced by a layered runtime with services.
  */
 export const runEffect = <A>(program: Effect.Effect<A>): Promise<A> =>
-  Effect.runPromise(program);
-
+	Effect.runPromise(program);
