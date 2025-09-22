@@ -6,6 +6,7 @@
  */
 
 import { Schema } from "@effect/schema";
+import { config } from "../config/environment";
 
 /**
  * Rate limit policy constants per session
@@ -16,10 +17,10 @@ export const RATE_LIMIT_POLICY = {
 	/** Query rate limits */
 	QUERIES: {
 		/** Maximum queries per second during burst */
-		BURST_QPS: 5,
+		BURST_QPS: config.rateLimits.queries.burstPerSecond,
 
 		/** Maximum queries per minute sustained */
-		SUSTAINED_PER_MINUTE: 60,
+		SUSTAINED_PER_MINUTE: config.rateLimits.queries.sustainedPerMinute,
 
 		/** Burst window duration in milliseconds */
 		BURST_WINDOW_MS: 1000,
@@ -30,14 +31,14 @@ export const RATE_LIMIT_POLICY = {
 
 	/** Mutation rate limits (publish/republish/rollback) */
 	MUTATIONS: {
-		/** Maximum mutations per 5 second burst window */
-		BURST_PER_5S: 1,
+		/** Maximum mutations per window */
+		BURST_PER_WINDOW: config.rateLimits.mutations.burstPerWindow,
 
 		/** Maximum mutations per minute sustained */
-		SUSTAINED_PER_MINUTE: 12,
+		SUSTAINED_PER_MINUTE: config.rateLimits.mutations.sustainedPerMinute,
 
 		/** Burst window duration in milliseconds */
-		BURST_WINDOW_MS: 5000,
+		BURST_WINDOW_MS: config.rateLimits.mutations.windowSeconds * 1000,
 
 		/** Sustained rate window in milliseconds */
 		SUSTAINED_WINDOW_MS: 60000,
@@ -46,10 +47,10 @@ export const RATE_LIMIT_POLICY = {
 	/** Draft save rate limits (more permissive for UX) */
 	DRAFT_SAVES: {
 		/** Maximum draft saves per second */
-		BURST_PPS: 10,
+		BURST_PPS: config.rateLimits.drafts.burstPerSecond,
 
 		/** Sustained draft saves per minute */
-		SUSTAINED_PER_MINUTE: 300,
+		SUSTAINED_PER_MINUTE: config.rateLimits.drafts.sustainedPerMinute,
 
 		/** Burst window duration in milliseconds */
 		BURST_WINDOW_MS: 1000,
@@ -208,7 +209,7 @@ export function createSessionRateLimiter(
 			RATE_LIMIT_POLICY.QUERIES.SUSTAINED_WINDOW_MS,
 		),
 		mutation_burst_bucket: createBucket(
-			RATE_LIMIT_POLICY.MUTATIONS.BURST_PER_5S,
+			RATE_LIMIT_POLICY.MUTATIONS.BURST_PER_WINDOW,
 			RATE_LIMIT_POLICY.MUTATIONS.BURST_WINDOW_MS,
 		),
 		mutation_sustained_bucket: createBucket(

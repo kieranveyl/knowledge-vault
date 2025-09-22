@@ -5,9 +5,10 @@
  */
 
 import { Effect } from "effect";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Pool, type PoolConfig } from "pg";
+import { config } from "../../config/environment";
 
 /**
  * Database configuration
@@ -26,14 +27,14 @@ export interface DatabaseConfig {
  * Default database configuration for development
  */
 export const DEFAULT_DATABASE_CONFIG: DatabaseConfig = {
-  host: "localhost",
-  port: 54321,
-  database: "knowledge",
-  user: "postgres",
-  password: "password",
-  ssl: false,
-  maxConnections: 10,
-} as const;
+  host: config.database.host,
+  port: config.database.port,
+  database: config.database.name,
+  user: config.database.user,
+  password: config.database.password,
+  ssl: config.database.ssl,
+  maxConnections: config.database.maxConnections,
+};
 
 /**
  * Database error types
@@ -314,9 +315,9 @@ export class MigrationManager {
  * Creates database pool with configuration
  */
 export function createDatabasePool(
-  config?: Partial<DatabaseConfig>,
+  overrides?: Partial<DatabaseConfig>,
 ): DatabasePool {
-  const fullConfig = { ...DEFAULT_DATABASE_CONFIG, ...config };
+  const fullConfig = { ...DEFAULT_DATABASE_CONFIG, ...overrides };
   return new DatabasePool(fullConfig);
 }
 
@@ -331,16 +332,5 @@ export function createMigrationManager(db: DatabasePool): MigrationManager {
  * Gets database configuration from environment
  */
 export function getDatabaseConfigFromEnv(): DatabaseConfig {
-  return {
-    host: process.env.DB_HOST || DEFAULT_DATABASE_CONFIG.host,
-    port: Number.parseInt(
-      process.env.DB_PORT || String(DEFAULT_DATABASE_CONFIG.port),
-      10,
-    ),
-    database: process.env.DB_NAME || DEFAULT_DATABASE_CONFIG.database,
-    user: process.env.DB_USER || DEFAULT_DATABASE_CONFIG.user,
-    password: process.env.DB_PASSWORD || DEFAULT_DATABASE_CONFIG.password,
-    ssl: process.env.DB_SSL === "true",
-    maxConnections: Number.parseInt(process.env.DB_MAX_CONNECTIONS || "10", 10),
-  };
+  return { ...DEFAULT_DATABASE_CONFIG };
 }

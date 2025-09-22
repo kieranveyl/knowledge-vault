@@ -4,12 +4,14 @@ import { createKnowledgeApiApp, type ApiAdapterDependencies } from "../adapters/
 
 // Import adapters directly
 import { createPostgresStorageAdapter } from "../adapters/storage/postgres.adapter";
-import { createDatabasePool } from "../adapters/storage/database";
+import { createMemoryStorageAdapter } from "../adapters/storage/memory.adapter";
+import { createDatabasePool, createMigrationManager } from "../adapters/storage/database";
 import { createOramaSearchAdapter } from "../adapters/search/orama.adapter";
 import { createMarkdownParsingAdapter } from "../adapters/parsing/markdown.adapter";
 import { createLocalObservabilityAdapter } from "../adapters/observability/local.adapter";
+import { config } from "../config/environment";
 
-const port = Number.parseInt(Bun.env.PORT ?? "3001", 10); // Port 3001 to avoid conflict with ElectricSQL
+const port = config.server.port; // defaults to 3001 to avoid conflict with ElectricSQL
 
 /**
  * Simple dependency injection for now
@@ -17,16 +19,33 @@ const port = Number.parseInt(Bun.env.PORT ?? "3001", 10); // Port 3001 to avoid 
 async function createDependencies(): Promise<ApiAdapterDependencies> {
 	console.log("🔧 Setting up application dependencies...");
 	
-	// Create database pool and storage adapter
-	console.log("🗄️ Connecting to PostgreSQL database...");
-	const db = createDatabasePool();
-	
-	// Test database connection
-	await Effect.runPromise(db.testConnection());
-	console.log("✅ Database connection verified");
-	
-	// Create adapters (using PostgreSQL storage)
-	const storage = createPostgresStorageAdapter(db);
+	let storage = createMemoryStorageAdapter();
+
+	if (config.features.usePostgres) {
+		console.log("🗄️ Connecting to PostgreSQL database...");
+		try {
+			const db = createDatabasePool();
+			await Effect.runPromise(db.testConnection());
+			console.log("✅ Database connection verified");
+
+			if (config.features.autoMigrate) {
+				const migrationManager = createMigrationManager(db);
+				const result = await Effect.runPromise(migrationManager.runMigrations());
+				if (result.applied.length > 0) {
+					console.log(`📦 Applied ${result.applied.length} database migrations`);
+				}
+			}
+
+			storage = createPostgresStorageAdapter(db);
+			console.log("🗄️ Using PostgreSQL storage adapter");
+		} catch (error) {
+			console.warn("⚠️ PostgreSQL setup failed, falling back to in-memory storage", error);
+		}
+	} else {
+		console.log("🗄️ Using in-memory storage adapter (Postgres disabled)");
+	}
+
+	// Create adapters
 	const indexing = createOramaSearchAdapter();
 	const parsing = createMarkdownParsingAdapter();
 	const observability = createLocalObservabilityAdapter();
@@ -35,8 +54,10 @@ async function createDependencies(): Promise<ApiAdapterDependencies> {
 	console.log("📁 Initializing workspace...");
 	await Effect.runPromise(storage.initializeWorkspace());
 
-	// Record startup metrics
-	await Effect.runPromise(observability.recordCounter("system.startup_total", 1));
+	// Record startup metrics (when observability is enabled)
+	if (config.observability.enabled) {
+		await Effect.runPromise(observability.recordCounter("system.startup_total", 1));
+	}
 
 	console.log("✅ Dependencies ready");
 	return { storage, indexing, parsing, observability };
@@ -67,7 +88,9 @@ async function main() {
 		// Setup graceful shutdown
 		const shutdown = async () => {
 			console.log("\n🛑 Shutting down gracefully...");
-			await Effect.runPromise(deps.observability.recordCounter("system.shutdown_total", 1));
+			if (config.observability.enabled) {
+				await Effect.runPromise(deps.observability.recordCounter("system.shutdown_total", 1));
+			}
 			process.exit(0);
 		};
 

@@ -13,11 +13,10 @@ import type {
 	ObservabilityPort,
 } from "../services";
 
-import { 
-	createDatabasePool, 
+import {
+	createDatabasePool,
 	createMigrationManager,
-	getDatabaseConfigFromEnv,
-	type DatabasePool 
+	type DatabasePool,
 } from "../adapters/storage/database";
 
 import { createPostgresStorageAdapter } from "../adapters/storage/postgres.adapter";
@@ -27,62 +26,7 @@ import { createMarkdownParsingAdapter } from "../adapters/parsing/markdown.adapt
 import { createLocalObservabilityAdapter } from "../adapters/observability/local.adapter";
 
 import type { ApiAdapterDependencies } from "../adapters/api/elysia.adapter";
-
-/**
- * Application environment configuration
- */
-export interface AppConfig {
-	readonly database: {
-		readonly use_postgres: boolean;
-		readonly auto_migrate: boolean;
-	};
-	readonly observability: {
-		readonly enabled: boolean;
-		readonly retention_days: number;
-	};
-	readonly development: {
-		readonly hot_reload: boolean;
-		readonly debug_logging: boolean;
-	};
-}
-
-/**
- * Default application configuration
- */
-export const DEFAULT_APP_CONFIG: AppConfig = {
-	database: {
-		use_postgres: true,
-		auto_migrate: true,
-	},
-	observability: {
-		enabled: true,
-		retention_days: 30,
-	},
-	development: {
-		hot_reload: true,
-		debug_logging: true,
-	},
-} as const;
-
-/**
- * Gets configuration from environment
- */
-export function getAppConfigFromEnv(): AppConfig {
-	return {
-		database: {
-			use_postgres: process.env.USE_POSTGRES !== "false",
-			auto_migrate: process.env.AUTO_MIGRATE !== "false",
-		},
-		observability: {
-			enabled: process.env.OBSERVABILITY_ENABLED !== "false",
-			retention_days: Number.parseInt(process.env.TELEMETRY_RETENTION_DAYS || "30", 10),
-		},
-		development: {
-			hot_reload: process.env.NODE_ENV === "development",
-			debug_logging: process.env.DEBUG_LOGGING === "true",
-		},
-	};
-}
+import { config } from "../config/environment";
 
 /**
  * Database layer - provides database connection
@@ -90,8 +34,7 @@ export function getAppConfigFromEnv(): AppConfig {
 export const DatabaseLayer = Layer.effect(
 	Context.GenericTag<DatabasePool>("DatabasePool"),
 	Effect.gen(function* () {
-		const config = getDatabaseConfigFromEnv();
-		const pool = createDatabasePool(config);
+		const pool = createDatabasePool();
 		
 		// Test connection
 		yield* pool.testConnection().pipe(
@@ -110,14 +53,12 @@ export const DatabaseLayer = Layer.effect(
 export const StorageLayer = Layer.effect(
 	Context.GenericTag<StoragePort>("StoragePort"),
 	Effect.gen(function* () {
-		const config = getAppConfigFromEnv();
-		
-		if (config.database.use_postgres) {
+		if (config.features.usePostgres) {
 			try {
 				const db = yield* Context.get(Context.GenericTag<DatabasePool>("DatabasePool"));
 				
 				// Run migrations if enabled
-				if (config.database.auto_migrate) {
+				if (config.features.autoMigrate) {
 					const migrationManager = createMigrationManager(db);
 					const result = yield* migrationManager.runMigrations();
 					
