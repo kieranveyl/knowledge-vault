@@ -4,9 +4,9 @@ Now your task is to convert that gap analysis into a **test development roadmap*
 
 **Inputs:**
 
-- TESTS.md (full requirements)
-- TESTS-COVERAGE.md - Matrix (with tested, partial, not tested)
-- src/tests (current coverage)
+- @TESTS.md (full requirements)
+- @TESTS-COVERAGE.md - Matrix (with tested, partial, not tested)
+- @src/tests (current coverage)
 
 **Goal:**
 Generate a prioritized test plan that specifies exactly what needs to be built next to close gaps, structured in phases that engineering can immediately implement.

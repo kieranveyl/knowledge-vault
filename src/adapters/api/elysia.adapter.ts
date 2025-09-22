@@ -187,6 +187,15 @@ function mapToApiError(error: unknown): ApiErrorResponse {
 					},
 				};
 			
+			case "RateLimitExceeded":
+				return {
+					error: {
+						type: "RateLimitExceeded",
+						message: taggedError.message || "Rate limit exceeded",
+						retry_after: taggedError.retry_after,
+					},
+				};
+			
 			default:
 				return {
 					error: {
@@ -199,8 +208,26 @@ function mapToApiError(error: unknown): ApiErrorResponse {
 
 	return {
 		error: {
-			type: "StorageIO",
+		type: "StorageIO",
 			message: error instanceof Error ? error.message : "Unknown error",
+		},
+	};
+}
+
+function respondWithValidationError(
+	set: { status?: number } | undefined,
+	details: ReadonlyArray<{ field: string; message: string; code: string }>,
+	status: number = 400,
+) {
+	if (set) {
+		set.status = status;
+	}
+
+	return {
+		error: {
+			type: "ValidationError",
+			message: "Validation failed",
+			details: details.length ? details : undefined,
 		},
 	};
 }
@@ -216,6 +243,10 @@ function handleEffectError(error: unknown, set?: { status?: number }): any {
 		originalError = (error as any).error;
 	}
 	
+	if (typeof originalError === "object" && originalError !== null && (originalError as any)._tag === "ParseError") {
+		return respondWithValidationError(set, [{ field: "body", message: "Request payload failed validation", code: "SCHEMA_PARSE_ERROR" }]);
+	}
+
 	// If it's still a FiberFailure with JSON message, parse it
 	if (originalError instanceof Error && originalError.message.startsWith("{")) {
 		try {
@@ -259,15 +290,11 @@ function checkRateLimit(
 	const result = checkFunction(rateLimiter);
 	
 	if (!result.allowed) {
-		throw new Error(
-			JSON.stringify({
-				error: {
-					type: "RateLimitExceeded",
-					message: `Rate limit exceeded for ${operation} operations`,
-					retry_after: Math.ceil((result.retry_after_ms || 0) / 1000),
-				},
-			}),
-		);
+		throw {
+			_tag: "RateLimitExceeded",
+			message: `Rate limit exceeded for ${operation} operations`,
+			retry_after: Math.ceil((result.retry_after_ms || 0) / 1000),
+		};
 	}
 }
 
@@ -307,7 +334,11 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 			"/drafts",
 			async ({ body, headers, set }) => {
 				const sessionContext = getOrCreateSession(headers["x-session-id"]);
-				checkRateLimit(sessionContext.rate_limiter, "draft");
+				try {
+					checkRateLimit(sessionContext.rate_limiter, "draft");
+				} catch (error) {
+					return handleEffectError(error, set);
+				}
 
 				try {
 					const request = Schema.decodeUnknownSync(SaveDraftRequest)(body);
@@ -345,11 +376,21 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 			"/publish",
 			async ({ body, headers, set }) => {
 				const sessionContext = getOrCreateSession(headers["x-session-id"]);
-				checkRateLimit(sessionContext.rate_limiter, "mutation");
+				try {
+					checkRateLimit(sessionContext.rate_limiter, "mutation");
+				} catch (error) {
+					return handleEffectError(error, set);
+				}
 
 				try {
 					const request = Schema.decodeUnknownSync(PublishRequest)(body);
-					
+
+					const note = await Effect.runPromise(deps.storage.getNote(request.note_id));
+					const titleLength = note.title.trim().length;
+					if (titleLength < 1 || titleLength > 200) {
+						return respondWithValidationError(set, [{ field: "title", message: "Title must be between 1 and 200 characters", code: "TITLE_LENGTH_RANGE" }]);
+					}
+
 					// Step 1: Publish version to storage
 					const publishResponse = await Effect.runPromise(deps.storage.publishVersion(request));
 					
@@ -389,14 +430,26 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 			"/rollback",
 			async ({ body, headers, set }) => {
 				const sessionContext = getOrCreateSession(headers["x-session-id"]);
-				checkRateLimit(sessionContext.rate_limiter, "mutation");
+				try {
+					checkRateLimit(sessionContext.rate_limiter, "mutation");
+				} catch (error) {
+					return handleEffectError(error, set);
+				}
 
 				try {
 					const request = Schema.decodeUnknownSync(RollbackRequest)(body);
 					
 					// Step 1: Perform rollback in storage
 					const rollbackResponse = await Effect.runPromise(deps.storage.rollbackToVersion(request));
-					
+
+					const rollbackCollections = await Effect.runPromise(
+						deps.storage.getNoteCollections(request.note_id),
+					);
+					const rollbackCollectionIds = rollbackCollections.map((collection) => collection.id);
+					if (rollbackCollectionIds.length === 0) {
+						return respondWithValidationError(set, [{ field: "collections", message: "Rollback visibility requires at least one collection", code: "COLLECTION_REQUIRED" }], 409);
+					}
+
 					// Step 2: Emit visibility event for indexing
 					const visibilityEvent = {
 						event_id: `evt_${Date.now()}`,
@@ -405,7 +458,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 						type: "VisibilityEvent" as const,
 						version_id: rollbackResponse.new_version_id,
 						op: "rollback" as const,
-						collections: [], // Would get from storage in full implementation
+						collections: rollbackCollectionIds,
 					};
 					
 					// Trigger indexing pipeline
@@ -429,22 +482,63 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 		)
 
 		// Search operations
-		.get("/search", async ({ query, headers, set }) => {
+		.get("/search", async ({ request, headers, set }) => {
 			const sessionContext = getOrCreateSession(headers["x-session-id"]);
-			checkRateLimit(sessionContext.rate_limiter, "query");
+			try {
+				checkRateLimit(sessionContext.rate_limiter, "query");
+			} catch (error) {
+				return handleEffectError(error, set);
+			}
 
 			try {
-				const request: SearchRequest = {
-					q: query.q as string,
-					collections: query.collections ? 
-						(Array.isArray(query.collections) ? query.collections : [query.collections]) as any[] :
-						undefined,
-					page: query.page ? Number.parseInt(query.page, 10) : undefined,
-					page_size: query.page_size ? Number.parseInt(query.page_size, 10) : undefined,
+				const url = new URL(request.url);
+				const queryText = url.searchParams.get("q");
+				if (!queryText || queryText.trim().length === 0) {
+					return respondWithValidationError(set, [{ field: "q", message: "Query text is required", code: "QUERY_REQUIRED" }]);
+				}
+
+				const collectionParams = url.searchParams.getAll("collections");
+				const pageParam = url.searchParams.get("page");
+				const pageSizeParam = url.searchParams.get("page_size");
+
+				const searchRequest: SearchRequest = {
+					q: queryText,
+					collections: collectionParams.length ? (collectionParams as any[]) : undefined,
+					page: pageParam ? Number.parseInt(pageParam, 10) : undefined,
+					page_size: pageSizeParam ? Number.parseInt(pageSizeParam, 10) : undefined,
 				};
 
-				const response = await Effect.runPromise(deps.indexing.search(request));
-				return response;
+				const searchResponse = await Effect.runPromise(deps.indexing.search(searchRequest));
+
+				if (searchResponse.answer) {
+					const citations = searchResponse.citations ?? [];
+					if (citations.length === 0) {
+						return respondWithValidationError(set, [{ field: "answer.citations", message: "Answer must include at least one citation", code: "CITATION_REQUIRED" }], 409);
+					}
+					if (citations.length > 3) {
+						return respondWithValidationError(set, [{ field: "answer.citations", message: "Answer may include at most three citations", code: "CITATION_LIMIT" }], 422);
+					}
+
+					const missingCitation = searchResponse.answer.citations.find((citationId) => !citations.some((citation) => citation.id === citationId));
+					if (missingCitation) {
+						return respondWithValidationError(set, [{ field: "answer.citations", message: `Citation ${missingCitation} is missing from response body`, code: "CITATION_MISSING" }], 409);
+					}
+
+					const uniqueAnswerCitationCount = new Set(searchResponse.answer.citations).size;
+					if (uniqueAnswerCitationCount !== searchResponse.answer.citations.length) {
+						return respondWithValidationError(set, [{ field: "answer.citations", message: "Duplicate citation identifiers are not allowed", code: "CITATION_DUPLICATE" }], 409);
+					}
+				}
+
+				if (searchRequest.collections && searchRequest.collections.length > 0) {
+					const allowedCollections = new Set(searchRequest.collections as readonly string[]);
+					const invalidResult = searchResponse.results.find((result) => result.collection_ids.some((collectionId) => !allowedCollections.has(collectionId as string)));
+					if (invalidResult) {
+						return respondWithValidationError(set, [{ field: "results", message: "Search results must respect requested collections scope", code: "SCOPE_VIOLATION" }], 409);
+					}
+				}
+
+				return searchResponse;
 			} catch (error) {
 				return handleEffectError(error, set);
 			}
