@@ -22,7 +22,7 @@ const colors = {
 
 async function createDraftDemo() {
   console.log(
-    `${colors.blue}${colors.bright}📝 Draft Creation Demo${colors.reset}`,
+    `${colors.blue}${colors.bright}[SPEC] Draft Creation Demo${colors.reset}`,
   );
   console.log("Demonstrating SPEC: Draft-by-default authoring with autosave\n");
 
@@ -43,7 +43,7 @@ async function createDraftDemo() {
       ),
     );
 
-    console.log(`${colors.green}✅ Note created:${colors.reset}`);
+    console.log(`${colors.green}[OK] Note created:${colors.reset}`);
     console.log(`   ID: ${note.id}`);
     console.log(`   Title: "${note.title}"`);
     console.log(`   Created: ${note.created_at.toISOString()}`);
@@ -84,7 +84,7 @@ This document contains my ongoing research into knowledge management systems.
       }),
     );
 
-    console.log(`${colors.green}✅ Draft saved:${colors.reset}`);
+    console.log(`${colors.green}[OK] Draft saved:${colors.reset}`);
     console.log(
       `   Autosave timestamp: ${updateResult.autosave_ts.toISOString()}`,
     );
@@ -96,7 +96,7 @@ This document contains my ongoing research into knowledge management systems.
     );
     const retrievedDraft = await Effect.runPromise(storage.getDraft(note.id));
 
-    console.log(`${colors.green}✅ Draft retrieved:${colors.reset}`);
+    console.log(`${colors.green}[OK] Draft retrieved:${colors.reset}`);
     console.log(`   Note ID: ${retrievedDraft.note_id}`);
     console.log(`   Word count: ${retrievedDraft.metadata.word_count}`);
     console.log(
@@ -112,7 +112,7 @@ This document contains my ongoing research into knowledge management systems.
     );
     const hasDraft = await Effect.runPromise(storage.hasDraft(note.id));
 
-    console.log(`${colors.green}✅ Draft check:${colors.reset}`);
+    console.log(`${colors.green}[OK] Draft check:${colors.reset}`);
     console.log(`   Has draft: ${hasDraft ? "Yes" : "No"}`);
 
     // Step 5: Demonstrate multiple saves (autosave behavior)
@@ -143,12 +143,12 @@ This document contains my ongoing research into knowledge management systems.
     }
 
     console.log(
-      `${colors.green}✅ Multiple autosaves completed${colors.reset}`,
+      `${colors.green}[OK] Multiple autosaves completed${colors.reset}`,
     );
 
     // Summary
     console.log(
-      `\n${colors.yellow}${colors.bright}📊 Demo Summary:${colors.reset}`,
+      `\n${colors.yellow}${colors.bright}[SUMMARY] Demo Summary:${colors.reset}`,
     );
     console.log(`• Created note with initial draft content`);
     console.log(`• Updated draft with rich markdown content`);
@@ -156,15 +156,15 @@ This document contains my ongoing research into knowledge management systems.
     console.log(`• Demonstrated autosave behavior`);
     console.log(`• All operations follow SPEC draft-by-default pattern`);
 
-    console.log(`\n${colors.blue}💡 SPEC Compliance:${colors.reset}`);
-    console.log(`• Draft-by-default authoring ✅`);
-    console.log(`• Autosave timestamps ✅`);
-    console.log(`• Draft isolation (not searchable) ✅`);
-    console.log(`• Rich metadata support ✅`);
+    console.log(`\n${colors.blue}[SPEC] SPEC Compliance:${colors.reset}`);
+    console.log(`• Draft-by-default authoring [OK]`);
+    console.log(`• Autosave timestamps [OK]`);
+    console.log(`• Draft isolation (not searchable) [OK]`);
+    console.log(`• Rich metadata support [OK]`);
 
     return note.id;
   } catch (error) {
-    console.error(`${colors.red}❌ Demo failed:${colors.reset}`, error);
+    console.error(`${colors.red}[ERR] Demo failed:${colors.reset}`, error);
     throw error;
   } finally {
     await Effect.runPromise(db.close());
@@ -175,7 +175,7 @@ async function main() {
   try {
     const noteId = await createDraftDemo();
     console.log(
-      `\n${colors.green}🎉 Draft demo completed successfully!${colors.reset}`,
+      `\n${colors.green}[READY] Draft demo completed successfully!${colors.reset}`,
     );
     console.log(
       `${colors.cyan}Note ID for next demos: ${noteId}${colors.reset}`,

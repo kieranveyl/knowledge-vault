@@ -1,67 +1,85 @@
 #!/usr/bin/env bun
 /**
  * Publication Workflow Demo Script
- * 
+ *
  * Demonstrates SPEC Section 4: Two-phase publish workflow
  * Shows draft → version creation → visibility pipeline
  */
 
 import { Effect } from "effect";
-import { createPostgresStorageAdapter } from "../src/adapters/storage/postgres.adapter";
 import { createDatabasePool } from "../src/adapters/storage/database";
+import { createPostgresStorageAdapter } from "../src/adapters/storage/postgres.adapter";
 import type { VersionLabel } from "../src/schema/entities";
 
 const colors = {
-    reset: '\x1b[0m',
-    bright: '\x1b[1m',
-    green: '\x1b[32m',
-    blue: '\x1b[34m',
-    yellow: '\x1b[33m',
-    cyan: '\x1b[36m',
-    red: '\x1b[31m',
-    magenta: '\x1b[35m'
+  reset: "\x1b[0m",
+  bright: "\x1b[1m",
+  green: "\x1b[32m",
+  blue: "\x1b[34m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  red: "\x1b[31m",
+  magenta: "\x1b[35m",
 };
 
 async function publishWorkflowDemo() {
-    console.log(`${colors.blue}${colors.bright}🚀 Publication Workflow Demo${colors.reset}`);
-    console.log("Demonstrating SPEC: Two-phase publish (Validate → Create Version → Enqueue Visibility)\n");
+  console.log(
+    `${colors.blue}${colors.bright}[SPEC] Publication Workflow Demo${colors.reset}`,
+  );
+  console.log(
+    "Demonstrating SPEC: Two-phase publish (Validate → Create Version → Enqueue Visibility)\n",
+  );
 
-    const db = createDatabasePool();
-    const storage = createPostgresStorageAdapter(db);
+  const db = createDatabasePool();
+  const storage = createPostgresStorageAdapter(db);
 
-    try {
-        // Step 1: Prepare collections for publication
-        console.log(`${colors.cyan}Step 1: Setting up collections for publication...${colors.reset}`);
-        
-        const primaryCollection = await Effect.runPromise(
-            storage.createCollection("Published Research", "Collection for published research papers")
-        );
-        
-        const secondaryCollection = await Effect.runPromise(
-            storage.createCollection("Public Documentation", "Publicly available documentation")
-        );
+  try {
+    // Step 1: Prepare collections for publication
+    console.log(
+      `${colors.cyan}Step 1: Setting up collections for publication...${colors.reset}`,
+    );
 
-        console.log(`${colors.green}✅ Collections ready:${colors.reset}`);
-        console.log(`   Primary: "${primaryCollection.name}" (${primaryCollection.id})`);
-        console.log(`   Secondary: "${secondaryCollection.name}" (${secondaryCollection.id})`);
+    const primaryCollection = await Effect.runPromise(
+      storage.createCollection(
+        "Published Research",
+        "Collection for published research papers",
+      ),
+    );
 
-        // Step 2: Create note with draft content (SPEC: Draft-by-default)
-        console.log(`\n${colors.cyan}Step 2: Creating note with substantial draft content...${colors.reset}`);
-        
-        const note = await Effect.runPromise(
-            storage.createNote(
-                "Knowledge Management Systems: A Comprehensive Analysis",
-                "# Knowledge Management Systems: A Comprehensive Analysis\n\nDraft version - work in progress.",
-                {
-                    tags: ["research", "knowledge-management", "systems"],
-                    author: "Research Team",
-                    draft_status: "ready_for_review"
-                }
-            )
-        );
+    const secondaryCollection = await Effect.runPromise(
+      storage.createCollection(
+        "Public Documentation",
+        "Publicly available documentation",
+      ),
+    );
 
-        // Update with publication-ready content
-        const publicationContent = `# Knowledge Management Systems: A Comprehensive Analysis
+    console.log(`${colors.green}[OK] Collections ready:${colors.reset}`);
+    console.log(
+      `   Primary: "${primaryCollection.name}" (${primaryCollection.id})`,
+    );
+    console.log(
+      `   Secondary: "${secondaryCollection.name}" (${secondaryCollection.id})`,
+    );
+
+    // Step 2: Create note with draft content (SPEC: Draft-by-default)
+    console.log(
+      `\n${colors.cyan}Step 2: Creating note with substantial draft content...${colors.reset}`,
+    );
+
+    const note = await Effect.runPromise(
+      storage.createNote(
+        "Knowledge Management Systems: A Comprehensive Analysis",
+        "# Knowledge Management Systems: A Comprehensive Analysis\n\nDraft version - work in progress.",
+        {
+          tags: ["research", "knowledge-management", "systems"],
+          author: "Research Team",
+          draft_status: "ready_for_review",
+        },
+      ),
+    );
+
+    // Update with publication-ready content
+    const publicationContent = `# Knowledge Management Systems: A Comprehensive Analysis
 
 ## Abstract
 
@@ -75,7 +93,7 @@ Knowledge management has evolved significantly with the advent of distributed sy
 
 ### 1. Local-First Architecture Benefits
 - **Privacy**: Data remains under user control
-- **Performance**: No network dependency for core operations  
+- **Performance**: No network dependency for core operations
 - **Reliability**: System works offline and during network failures
 - **Ownership**: Users maintain full control over their content
 
@@ -129,7 +147,7 @@ This study has several limitations:
 
 Knowledge management systems benefit significantly from:
 1. Local-first architectural principles
-2. Draft-by-default content workflows  
+2. Draft-by-default content workflows
 3. Comprehensive version control integration
 4. Performance-optimized search and retrieval
 
@@ -152,63 +170,91 @@ Future research should investigate:
 *Publication prepared: ${new Date().toISOString()}*
 *Ready for peer review and publication*`;
 
-        await Effect.runPromise(
-            storage.saveDraft({
-                note_id: note.id,
-                body_md: publicationContent,
-                metadata: {
-                    tags: ["research", "knowledge-management", "systems", "published"],
-                    author: "Research Team",
-                    word_count: publicationContent.split(/\s+/).length,
-                    sections: ["abstract", "introduction", "findings", "methodology", "results", "discussion", "conclusions"],
-                    ready_for_publication: true,
-                    review_status: "approved"
-                }
-            })
-        );
+    await Effect.runPromise(
+      storage.saveDraft({
+        note_id: note.id,
+        body_md: publicationContent,
+        metadata: {
+          tags: ["research", "knowledge-management", "systems", "published"],
+          author: "Research Team",
+          word_count: publicationContent.split(/\s+/).length,
+          sections: [
+            "abstract",
+            "introduction",
+            "findings",
+            "methodology",
+            "results",
+            "discussion",
+            "conclusions",
+          ],
+          ready_for_publication: true,
+          review_status: "approved",
+        },
+      }),
+    );
 
-        console.log(`${colors.green}✅ Note with publication-ready draft created:${colors.reset}`);
-        console.log(`   Title: "${note.title}"`);
-        console.log(`   Note ID: ${note.id}`);
-        console.log(`   Word count: ~${publicationContent.split(/\s+/).length} words`);
+    console.log(
+      `${colors.green}[OK] Note with publication-ready draft created:${colors.reset}`,
+    );
+    console.log(`   Title: "${note.title}"`);
+    console.log(`   Note ID: ${note.id}`);
+    console.log(
+      `   Word count: ~${publicationContent.split(/\s+/).length} words`,
+    );
 
-        // Step 3: First publication (SPEC: Create Version → Publication record)
-        console.log(`\n${colors.cyan}Step 3: Publishing first version (minor)...${colors.reset}`);
-        
-        const firstPublication = await Effect.runPromise(
-            storage.publishVersion({
-                note_id: note.id,
-                collections: [primaryCollection.id],
-                label: "minor" as VersionLabel,
-                client_token: `pub_${Date.now()}_1`
-            })
-        );
+    // Step 3: First publication (SPEC: Create Version → Publication record)
+    console.log(
+      `\n${colors.cyan}Step 3: Publishing first version (minor)...${colors.reset}`,
+    );
 
-        console.log(`${colors.green}✅ First publication completed:${colors.reset}`);
-        console.log(`   Version ID: ${firstPublication.version_id}`);
-        console.log(`   Status: ${firstPublication.status}`);
-        console.log(`   Collections: [${primaryCollection.name}]`);
-        console.log(`   Estimated searchable in: ${firstPublication.estimated_searchable_in}ms`);
+    const firstPublication = await Effect.runPromise(
+      storage.publishVersion({
+        note_id: note.id,
+        collections: [primaryCollection.id],
+        label: "minor" as VersionLabel,
+        client_token: `pub_${Date.now()}_1`,
+      }),
+    );
 
-        // Step 4: Retrieve created version
-        console.log(`\n${colors.cyan}Step 4: Retrieving published version...${colors.reset}`);
-        
-        const publishedVersion = await Effect.runPromise(
-            storage.getVersion(firstPublication.version_id)
-        );
+    console.log(
+      `${colors.green}[OK] First publication completed:${colors.reset}`,
+    );
+    console.log(`   Version ID: ${firstPublication.version_id}`);
+    console.log(`   Status: ${firstPublication.status}`);
+    console.log(`   Collections: [${primaryCollection.name}]`);
+    console.log(
+      `   Estimated searchable in: ${firstPublication.estimated_searchable_in}ms`,
+    );
 
-        console.log(`${colors.green}✅ Version details:${colors.reset}`);
-        console.log(`   Version ID: ${publishedVersion.id}`);
-        console.log(`   Note ID: ${publishedVersion.note_id}`);
-        console.log(`   Label: ${publishedVersion.label}`);
-        console.log(`   Content hash: ${publishedVersion.content_hash.substring(0, 16)}...`);
-        console.log(`   Created: ${publishedVersion.created_at.toISOString()}`);
-        console.log(`   Parent version: ${publishedVersion.parent_version_id || 'none (initial)'}`);
+    // Step 4: Retrieve created version
+    console.log(
+      `\n${colors.cyan}Step 4: Retrieving published version...${colors.reset}`,
+    );
 
-        // Step 5: Update draft and republish (major version)
-        console.log(`\n${colors.cyan}Step 5: Creating major revision...${colors.reset}`);
-        
-        const revisedContent = publicationContent + `
+    const publishedVersion = await Effect.runPromise(
+      storage.getVersion(firstPublication.version_id),
+    );
+
+    console.log(`${colors.green}[OK] Version details:${colors.reset}`);
+    console.log(`   Version ID: ${publishedVersion.id}`);
+    console.log(`   Note ID: ${publishedVersion.note_id}`);
+    console.log(`   Label: ${publishedVersion.label}`);
+    console.log(
+      `   Content hash: ${publishedVersion.content_hash.substring(0, 16)}...`,
+    );
+    console.log(`   Created: ${publishedVersion.created_at.toISOString()}`);
+    console.log(
+      `   Parent version: ${publishedVersion.parent_version_id || "none (initial)"}`,
+    );
+
+    // Step 5: Update draft and republish (major version)
+    console.log(
+      `\n${colors.cyan}Step 5: Creating major revision...${colors.reset}`,
+    );
+
+    const revisedContent =
+      publicationContent +
+      `
 
 ## ADDENDUM: Post-Publication Updates
 
@@ -221,7 +267,7 @@ Our security review revealed that local-first systems provide superior protectio
 - Unauthorized access during network transit
 - Third-party data mining and analysis
 
-#### Performance Optimization Insights  
+#### Performance Optimization Insights
 Further testing showed that local-first architecture enables:
 - Sub-millisecond response times for local operations
 - Predictable performance regardless of network conditions
@@ -241,118 +287,153 @@ The evidence for local-first knowledge management systems is even stronger than 
 
 ---
 
-*Revision prepared: ${new Date().toISOString()}*  
+*Revision prepared: ${new Date().toISOString()}*
 *Major update with significant new content*`;
 
-        await Effect.runPromise(
-            storage.saveDraft({
-                note_id: note.id,
-                body_md: revisedContent,
-                metadata: {
-                    tags: ["research", "knowledge-management", "systems", "published", "revised"],
-                    author: "Research Team",
-                    word_count: revisedContent.split(/\s+/).length,
-                    sections: ["abstract", "introduction", "findings", "methodology", "results", "discussion", "conclusions", "addendum"],
-                    ready_for_publication: true,
-                    review_status: "approved",
-                    revision_notes: "Added post-publication findings and recommendations"
-                }
-            })
-        );
+    await Effect.runPromise(
+      storage.saveDraft({
+        note_id: note.id,
+        body_md: revisedContent,
+        metadata: {
+          tags: [
+            "research",
+            "knowledge-management",
+            "systems",
+            "published",
+            "revised",
+          ],
+          author: "Research Team",
+          word_count: revisedContent.split(/\s+/).length,
+          sections: [
+            "abstract",
+            "introduction",
+            "findings",
+            "methodology",
+            "results",
+            "discussion",
+            "conclusions",
+            "addendum",
+          ],
+          ready_for_publication: true,
+          review_status: "approved",
+          revision_notes: "Added post-publication findings and recommendations",
+        },
+      }),
+    );
 
-        // Publish major version to multiple collections
-        const majorPublication = await Effect.runPromise(
-            storage.publishVersion({
-                note_id: note.id,
-                collections: [primaryCollection.id, secondaryCollection.id],
-                label: "major" as VersionLabel,
-                client_token: `pub_${Date.now()}_2`
-            })
-        );
+    // Publish major version to multiple collections
+    const majorPublication = await Effect.runPromise(
+      storage.publishVersion({
+        note_id: note.id,
+        collections: [primaryCollection.id, secondaryCollection.id],
+        label: "major" as VersionLabel,
+        client_token: `pub_${Date.now()}_2`,
+      }),
+    );
 
-        console.log(`${colors.green}✅ Major revision published:${colors.reset}`);
-        console.log(`   Version ID: ${majorPublication.version_id}`);
-        console.log(`   Collections: [${primaryCollection.name}, ${secondaryCollection.name}]`);
-        console.log(`   Label: major (significant content changes)`);
+    console.log(`${colors.green}[OK] Major revision published:${colors.reset}`);
+    console.log(`   Version ID: ${majorPublication.version_id}`);
+    console.log(
+      `   Collections: [${primaryCollection.name}, ${secondaryCollection.name}]`,
+    );
+    console.log(`   Label: major (significant content changes)`);
 
-        // Step 6: Show version history
-        console.log(`\n${colors.cyan}Step 6: Reviewing version history...${colors.reset}`);
-        
-        const versionHistory = await Effect.runPromise(
-            storage.listVersions(note.id, { limit: 10 })
-        );
+    // Step 6: Show version history
+    console.log(
+      `\n${colors.cyan}Step 6: Reviewing version history...${colors.reset}`,
+    );
 
-        console.log(`${colors.green}✅ Version history (${versionHistory.length} versions):${colors.reset}`);
-        versionHistory.forEach((version, index) => {
-            const isLatest = index === 0;
-            const marker = isLatest ? "→" : " ";
-            console.log(`   ${marker} ${version.label.toUpperCase()}: ${version.id}`);
-            console.log(`     Created: ${version.created_at.toISOString()}`);
-            console.log(`     Hash: ${version.content_hash.substring(0, 16)}...`);
-            if (version.parent_version_id) {
-                console.log(`     Parent: ${version.parent_version_id}`);
-            }
-        });
+    const versionHistory = await Effect.runPromise(
+      storage.listVersions(note.id, { limit: 10 }),
+    );
 
-        // Step 7: Check current version
-        console.log(`\n${colors.cyan}Step 7: Verifying current version...${colors.reset}`);
-        
-        const currentVersion = await Effect.runPromise(
-            storage.getCurrentVersion(note.id)
-        );
+    console.log(
+      `${colors.green}[OK] Version history (${versionHistory.length} versions):${colors.reset}`,
+    );
+    versionHistory.forEach((version, index) => {
+      const isLatest = index === 0;
+      const marker = isLatest ? "→" : " ";
+      console.log(`   ${marker} ${version.label.toUpperCase()}: ${version.id}`);
+      console.log(`     Created: ${version.created_at.toISOString()}`);
+      console.log(`     Hash: ${version.content_hash.substring(0, 16)}...`);
+      if (version.parent_version_id) {
+        console.log(`     Parent: ${version.parent_version_id}`);
+      }
+    });
 
-        console.log(`${colors.green}✅ Current version confirmed:${colors.reset}`);
-        console.log(`   Version ID: ${currentVersion.id}`);
-        console.log(`   Label: ${currentVersion.label}`);
-        console.log(`   Is latest: ${currentVersion.id === versionHistory[0].id ? 'Yes' : 'No'}`);
+    // Step 7: Check current version
+    console.log(
+      `\n${colors.cyan}Step 7: Verifying current version...${colors.reset}`,
+    );
 
-        // Summary with SPEC compliance
-        console.log(`\n${colors.yellow}${colors.bright}📊 Publication Demo Summary:${colors.reset}`);
-        console.log(`• Created comprehensive research content`);
-        console.log(`• Published minor version to single collection`);
-        console.log(`• Published major revision to multiple collections`);
-        console.log(`• Demonstrated complete version history`);
-        console.log(`• Verified immutable version creation`);
+    const currentVersion = await Effect.runPromise(
+      storage.getCurrentVersion(note.id),
+    );
 
-        console.log(`\n${colors.blue}💡 SPEC Compliance:${colors.reset}`);
-        console.log(`• Two-phase publish workflow ✅`);
-        console.log(`• Version immutability ✅`);
-        console.log(`• Collection many-to-many associations ✅`);
-        console.log(`• Version labeling (minor/major) ✅`);
-        console.log(`• Publication metadata tracking ✅`);
+    console.log(
+      `${colors.green}[OK] Current version confirmed:${colors.reset}`,
+    );
+    console.log(`   Version ID: ${currentVersion.id}`);
+    console.log(`   Label: ${currentVersion.label}`);
+    console.log(
+      `   Is latest: ${currentVersion.id === versionHistory[0].id ? "Yes" : "No"}`,
+    );
 
-        console.log(`\n${colors.magenta}🔗 Next Steps:${colors.reset}`);
-        console.log(`• Content is now ready for indexing pipeline`);
-        console.log(`• Versions should appear in search results`);
-        console.log(`• Version rollback functionality available`);
+    // Summary with SPEC compliance
+    console.log(
+      `\n${colors.yellow}${colors.bright}[SUMMARY] Publication Demo Summary:${colors.reset}`,
+    );
+    console.log(`• Created comprehensive research content`);
+    console.log(`• Published minor version to single collection`);
+    console.log(`• Published major revision to multiple collections`);
+    console.log(`• Demonstrated complete version history`);
+    console.log(`• Verified immutable version creation`);
 
-        return {
-            note,
-            versions: versionHistory,
-            collections: [primaryCollection, secondaryCollection]
-        };
+    console.log(`\n${colors.blue}[SPEC] SPEC Compliance:${colors.reset}`);
+    console.log(`• Two-phase publish workflow [OK]`);
+    console.log(`• Version immutability [OK]`);
+    console.log(`• Collection many-to-many associations [OK]`);
+    console.log(`• Version labeling (minor/major) [OK]`);
+    console.log(`• Publication metadata tracking [OK]`);
 
-    } catch (error) {
-        console.error(`${colors.red}❌ Publication demo failed:${colors.reset}`, error);
-        throw error;
-    } finally {
-        await Effect.runPromise(db.close());
-    }
+    console.log(`\n${colors.magenta}=== Next Steps:${colors.reset}`);
+    console.log(`• Content is now ready for indexing pipeline`);
+    console.log(`• Versions should appear in search results`);
+    console.log(`• Version rollback functionality available`);
+
+    return {
+      note,
+      versions: versionHistory,
+      collections: [primaryCollection, secondaryCollection],
+    };
+  } catch (error) {
+    console.error(
+      `${colors.red}[ERR] Publication demo failed:${colors.reset}`,
+      error,
+    );
+    throw error;
+  } finally {
+    await Effect.runPromise(db.close());
+  }
 }
 
 async function main() {
-    try {
-        const result = await publishWorkflowDemo();
-        console.log(`\n${colors.green}🎉 Publication workflow demo completed successfully!${colors.reset}`);
-        console.log(`${colors.cyan}Published ${result.versions.length} versions to ${result.collections.length} collections${colors.reset}`);
-    } catch (error) {
-        console.error(`${colors.red}Script failed:${colors.reset}`, error);
-        process.exit(1);
-    }
+  try {
+    const result = await publishWorkflowDemo();
+    console.log(
+      `\n${colors.green}[READY] Publication workflow demo completed successfully!${colors.reset}`,
+    );
+    console.log(
+      `${colors.cyan}Published ${result.versions.length} versions to ${result.collections.length} collections${colors.reset}`,
+    );
+  } catch (error) {
+    console.error(`${colors.red}Script failed:${colors.reset}`, error);
+    process.exit(1);
+  }
 }
 
 if (import.meta.main) {
-    main();
+  main();
 }
 
 export { publishWorkflowDemo };
