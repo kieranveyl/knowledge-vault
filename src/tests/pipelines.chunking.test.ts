@@ -42,11 +42,14 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 		});
 
 		it("rejects invalid configuration", () => {
-			const invalidConfig = {
-				...DEFAULT_CHUNKING_CONFIG,
-				maxTokensPerPassage: 5, // Too small
-				overlapTokens: 200, // Larger than max tokens
-			};
+		// Explicit invalid config that isolates the intended errors
+		const invalidConfig = {
+		maxTokensPerPassage: 5, // Too small
+		overlapTokens: 200, // Larger than max tokens
+		 maxNoteTokens: 20000,
+			preserveStructureBoundaries: true,
+			minPassageTokens: 2, // < maxTokensPerPassage to avoid extra error
+		} as const;
 
 			const errors = validateChunkingConfig(invalidConfig);
 			expect(errors.length).toBeGreaterThan(0);
@@ -55,10 +58,13 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 		});
 
 		it("validates overlap constraints", () => {
-			const invalidConfig = {
-				...DEFAULT_CHUNKING_CONFIG,
-				overlapTokens: -10, // Negative overlap
-			};
+		const invalidConfig = {
+		maxTokensPerPassage: 180,
+		overlapTokens: -10, // Negative overlap
+		 maxNoteTokens: 20000,
+			preserveStructureBoundaries: true,
+			minPassageTokens: 10,
+		} as const;
 
 			const errors = validateChunkingConfig(invalidConfig);
 			expect(errors).toContain("overlapTokens cannot be negative");
@@ -69,10 +75,11 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 		it("chunks content within token limits", async () => {
 			const versionId = "ver_01JBXR8G9P7QN1VMPX84KTFHK2" as VersionId;
 			const config = {
-				...DEFAULT_CHUNKING_CONFIG,
 				maxTokensPerPassage: 50, // Smaller for testing
-				overlapTokens: 25,
-				minPassageTokens: 5, // Allow smaller chunks for testing
+				overlapTokens: 25, // 50% overlap
+				maxNoteTokens: 20000,
+				preserveStructureBoundaries: true,
+				minPassageTokens: 3, // Allow smaller chunks for testing
 			};
 
 			const result = await Effect.runPromise(
@@ -108,9 +115,11 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 		it("preserves structure boundaries when enabled", async () => {
 			const versionId = "ver_01JBXR8G9P7QN1VMPX84KTFHK2" as VersionId;
 			const config = {
-				...DEFAULT_CHUNKING_CONFIG,
 				maxTokensPerPassage: 30,
+				overlapTokens: 15, // 50% overlap
+				maxNoteTokens: 20000,
 				preserveStructureBoundaries: true,
+				minPassageTokens: 5,
 			};
 
 			const result = await Effect.runPromise(
@@ -128,9 +137,11 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 		it("creates proper overlap between chunks", async () => {
 			const versionId = "ver_01JBXR8G9P7QN1VMPX84KTFHK2" as VersionId;
 			const config = {
-				...DEFAULT_CHUNKING_CONFIG,
 				maxTokensPerPassage: 20,
-				overlapTokens: 10,
+				overlapTokens: 10, // 50% overlap
+				maxNoteTokens: 20000,
+				preserveStructureBoundaries: true,
+				minPassageTokens: 10,
 			};
 
 			const result = await Effect.runPromise(
@@ -156,8 +167,11 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 			];
 
 			const config = {
-				...DEFAULT_CHUNKING_CONFIG,
 				maxTokensPerPassage: 50,
+				overlapTokens: 25, // 50% overlap
+				maxNoteTokens: 20000,
+				preserveStructureBoundaries: true,
+				minPassageTokens: 10,
 			};
 
 			const result = await Effect.runPromise(
@@ -185,8 +199,11 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 			const versionId = "ver_01JBXR8G9P7QN1VMPX84KTFHK2" as VersionId;
 			const chunks = await Effect.runPromise(
 				chunkContent(versionId, sampleContent, {
-					...DEFAULT_CHUNKING_CONFIG,
-					maxTokensPerPassage: 50,
+					maxTokensPerPassage: 80,
+					overlapTokens: 40, // 50% overlap
+					maxNoteTokens: 20000,
+					preserveStructureBoundaries: true,
+					minPassageTokens: 10, // Use standard minimum
 				})
 			);
 
@@ -244,8 +261,11 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 			const versionId = "ver_01JBXR8G9P7QN1VMPX84KTFHK2" as VersionId;
 			const chunks = await Effect.runPromise(
 				chunkContent(versionId, sampleContent, {
-					...DEFAULT_CHUNKING_CONFIG,
 					maxTokensPerPassage: 30,
+					overlapTokens: 15, // 50% overlap
+					maxNoteTokens: 20000,
+					preserveStructureBoundaries: true,
+					minPassageTokens: 10,
 				})
 			);
 
@@ -294,9 +314,11 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 
 			const result = await Effect.runPromise(
 				runChunkingPipeline(versions, {
-					...DEFAULT_CHUNKING_CONFIG,
 					maxTokensPerPassage: 40,
-					overlapTokens: 20, // Keep valid overlap ratio
+					overlapTokens: 20, // 50% overlap
+					maxNoteTokens: 20000,
+					preserveStructureBoundaries: true,
+					minPassageTokens: 10,
 				})
 			);
 
@@ -394,10 +416,11 @@ At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praese
 		it("retains structure_path boundaries where possible", async () => {
 			const versionId = "ver_01JBXR8G9P7QN1VMPX84KTFHK2" as VersionId;
 			const config = {
-				...DEFAULT_CHUNKING_CONFIG,
-				preserveStructureBoundaries: true,
 				maxTokensPerPassage: 40,
-				overlapTokens: 20, // Keep valid overlap ratio
+				overlapTokens: 20, // 50% overlap
+				maxNoteTokens: 20000,
+				preserveStructureBoundaries: true,
+				minPassageTokens: 10,
 			};
 
 			const result = await Effect.runPromise(

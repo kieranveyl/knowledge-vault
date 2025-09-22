@@ -54,14 +54,34 @@ export function normalizeText(
 
   // Step 3: Whitespace collapse (except in code spans/blocks)
   if (preserveCodeContent) {
-  // Simple implementation: preserve content within backticks
-  // More sophisticated implementation would use a proper Markdown parser
-  // For now, just collapse spaces and tabs but preserve line breaks
-   normalized = normalized.replace(/[ \t]+/g, " ");
+    // SPEC: Do not alter text inside code spans/blocks
+    // Preserve code content within backticks but collapse other whitespace
+    const parts: string[] = [];
+    const codeRegex = /(`[^`]*`)/g;
+    let lastIndex = 0;
+    let match;
+    
+    while ((match = codeRegex.exec(normalized)) !== null) {
+      // Process text before code span
+      const beforeCode = normalized.substring(lastIndex, match.index);
+      const collapsedBefore = beforeCode.replace(/\s+/g, " ");
+      parts.push(collapsedBefore);
+      
+      // Preserve code span exactly
+      parts.push(match[1]);
+      lastIndex = match.index + match[1].length;
+    }
+    
+    // Process remaining text after last code span
+    const remaining = normalized.substring(lastIndex);
+    const collapsedRemaining = remaining.replace(/\s+/g, " ");
+    parts.push(collapsedRemaining);
+    
+    normalized = parts.join("");
   } else {
-  // Collapse all runs of whitespace to single space
-   normalized = normalized.replace(/\s+/g, " ");
-	}
+    // Collapse all runs of whitespace to single space
+    normalized = normalized.replace(/\s+/g, " ");
+  }
 
   // Step 4: Trim leading/trailing whitespace
   return normalized.trim();
@@ -119,17 +139,51 @@ export function tokenizeText(
   const segmenter = new Intl.Segmenter("en", { granularity: "word" });
   const segments = Array.from(segmenter.segment(normalizedText));
 
-  for (const segment of segments) {
+  // SPEC: treat internal apostrophes and hyphens between letters/digits as part of token
+  // Merge word segments that are separated by hyphens or apostrophes
+  const mergedSegments: Array<{segment: string, index: number, isWordLike: boolean}> = [];
+  
+  for (let i = 0; i < segments.length; i++) {
+    const current = segments[i];
+    
+    if (!current.isWordLike) {
+      continue; // Skip non-word segments
+    }
+    
+    // Check if next segments form a hyphenated word
+    let mergedText = current.segment;
+    let j = i + 1;
+    
+    while (j < segments.length - 1) {
+      const separator = segments[j];
+      const nextWord = segments[j + 1];
+      
+      // SPEC: internal hyphens and apostrophes between letters/digits
+      if (!separator.isWordLike && 
+          /^[-']$/.test(separator.segment) && 
+          nextWord?.isWordLike) {
+        mergedText += separator.segment + nextWord.segment;
+        j += 2;
+      } else {
+        break;
+      }
+    }
+    
+    mergedSegments.push({
+      segment: mergedText,
+      index: current.index,
+      isWordLike: true
+    });
+    
+    i = j - 1; // Skip processed segments
+  }
+
+  for (const segment of mergedSegments) {
     const { segment: text, index, isWordLike } = segment;
 
-    if (!isWordLike) {
-      // Skip non-word segments (whitespace, punctuation)
-      continue;
-    }
-
-    // Apply custom separator rules for _ and /
-    if (config.boundaries.underscore_slash_separators && /[_/]/.test(text)) {
-    const subTokens = text.split(/[_/]+/);
+    // Apply custom separator rules for _ and / (and . for file extensions)
+    if (config.boundaries.underscore_slash_separators && /[_/.]/.test(text)) {
+    const subTokens = text.split(/[_/.]+/);
     let currentOffset = 0;
     for (const subToken of subTokens) {
     if (subToken.length > 0) {

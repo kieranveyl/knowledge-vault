@@ -376,6 +376,7 @@ export class PostgresStorageAdapter implements StoragePort {
     this.db
       .query<DraftRow>("SELECT * FROM drafts WHERE note_id = $1", [note_id])
       .pipe(
+        Effect.mapError(mapDatabaseError),
         Effect.flatMap((rows) => {
           if (rows.length === 0) {
             return Effect.fail({
@@ -386,7 +387,6 @@ export class PostgresStorageAdapter implements StoragePort {
           }
           return Effect.succeed(mapDraftRow(rows[0]));
         }),
-        Effect.catchAll((error) => Effect.fail(mapDatabaseError(error))),
       );
 
   readonly hasDraft = (note_id: NoteId): Effect.Effect<boolean, StorageError> =>
@@ -638,6 +638,21 @@ export class PostgresStorageAdapter implements StoragePort {
     description?: string,
   ): Effect.Effect<Collection, StorageError> =>
     Effect.gen(this, function* () {
+      // Validate collection name
+      if (!name || name.trim().length === 0) {
+        yield* Effect.fail({
+          _tag: "ValidationError",
+          errors: ["Collection name cannot be empty"],
+        } as StorageError);
+      }
+      
+      if (name.length > 100) {
+        yield* Effect.fail({
+          _tag: "ValidationError", 
+          errors: ["Collection name cannot exceed 100 characters"],
+        } as StorageError);
+      }
+
       const id = `col_${ulid()}` as CollectionId;
       const now = new Date();
 

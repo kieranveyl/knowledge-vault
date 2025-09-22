@@ -206,35 +206,41 @@ function mapToApiError(error: unknown): ApiErrorResponse {
 }
 
 /**
- * Throws an HTTP error with proper status code
+ * Properly handle Effect errors and return HTTP responses
  */
-function throwHttpError(error: unknown, set?: { status?: number }): never {
-	const apiError = mapToApiError(error);
+function handleEffectError(error: unknown, set?: { status?: number }): any {
+	// Extract original error from FiberFailure per Effect.js documentation
+	let originalError = error;
 	
-	// Extract the domain error from the API error response to get the correct status code
-	let domainError = error;
-	if (error instanceof Error && error.message.startsWith("{")) {
+	if (error && typeof error === 'object' && 'error' in error) {
+		originalError = (error as any).error;
+	}
+	
+	// If it's still a FiberFailure with JSON message, parse it
+	if (originalError instanceof Error && originalError.message.startsWith("{")) {
 		try {
-			const parsedError = JSON.parse(error.message);
+			const parsedError = JSON.parse(originalError.message);
 			if (parsedError._tag) {
+				// Map database errors to domain errors
 				if (parsedError._tag === "QueryFailed" || parsedError._tag === "ConnectionFailed" || parsedError._tag === "TransactionFailed") {
-					domainError = mapDatabaseError(parsedError);
+					originalError = mapDatabaseError(parsedError);
 				} else {
-					domainError = parsedError;
+					originalError = parsedError;
 				}
 			}
 		} catch {
-			// Use original error
+			// Use the error as-is
 		}
 	}
 	
-	const statusCode = getHttpStatusFromError(domainError);
+	const statusCode = getHttpStatusFromError(originalError);
+	const apiError = mapToApiError(originalError);
 	
 	if (set) {
 		set.status = statusCode;
 	}
 	
-	throw new Error(JSON.stringify(apiError));
+	return apiError;
 }
 
 /**
@@ -308,7 +314,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 					const response = await Effect.runPromise(deps.storage.saveDraft(request));
 					return response;
 				} catch (error) {
-					throwHttpError(error, set);
+					return handleEffectError(error, set);
 				}
 			},
 			{
@@ -330,23 +336,43 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 				);
 				return draft;
 			} catch (error) {
-				throwHttpError(error, set);
+				return handleEffectError(error, set);
 			}
 		})
 
 		// Publication operations
 		.post(
 			"/publish",
-			async ({ body, headers }) => {
+			async ({ body, headers, set }) => {
 				const sessionContext = getOrCreateSession(headers["x-session-id"]);
 				checkRateLimit(sessionContext.rate_limiter, "mutation");
 
 				try {
 					const request = Schema.decodeUnknownSync(PublishRequest)(body);
-					const response = await Effect.runPromise(deps.storage.publishVersion(request));
-					return response;
+					
+					// Step 1: Publish version to storage
+					const publishResponse = await Effect.runPromise(deps.storage.publishVersion(request));
+					
+					// Step 2: Emit visibility event for indexing
+					const visibilityEvent = {
+						event_id: `evt_${Date.now()}`,
+						timestamp: new Date(),
+						schema_version: "1.0.0",
+						type: "VisibilityEvent" as const,
+						version_id: publishResponse.version_id,
+						op: "publish" as const,
+						collections: request.collections,
+					};
+					
+					// Trigger indexing pipeline
+					await Effect.runPromise(deps.indexing.enqueueVisibilityEvent(visibilityEvent));
+					
+					return {
+						...publishResponse,
+						indexing_started: true,
+					};
 				} catch (error) {
-					throw new Error(JSON.stringify(mapToApiError(error)));
+					return handleEffectError(error, set);
 				}
 			},
 			{
@@ -361,16 +387,36 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 
 		.post(
 			"/rollback",
-			async ({ body, headers }) => {
+			async ({ body, headers, set }) => {
 				const sessionContext = getOrCreateSession(headers["x-session-id"]);
 				checkRateLimit(sessionContext.rate_limiter, "mutation");
 
 				try {
 					const request = Schema.decodeUnknownSync(RollbackRequest)(body);
-					const response = await Effect.runPromise(deps.storage.rollbackToVersion(request));
-					return response;
+					
+					// Step 1: Perform rollback in storage
+					const rollbackResponse = await Effect.runPromise(deps.storage.rollbackToVersion(request));
+					
+					// Step 2: Emit visibility event for indexing
+					const visibilityEvent = {
+						event_id: `evt_${Date.now()}`,
+						timestamp: new Date(),
+						schema_version: "1.0.0",
+						type: "VisibilityEvent" as const,
+						version_id: rollbackResponse.new_version_id,
+						op: "rollback" as const,
+						collections: [], // Would get from storage in full implementation
+					};
+					
+					// Trigger indexing pipeline
+					await Effect.runPromise(deps.indexing.enqueueVisibilityEvent(visibilityEvent));
+					
+					return {
+						...rollbackResponse,
+						indexing_started: true,
+					};
 				} catch (error) {
-					throw new Error(JSON.stringify(mapToApiError(error)));
+					return handleEffectError(error, set);
 				}
 			},
 			{
@@ -383,7 +429,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 		)
 
 		// Search operations
-		.get("/search", async ({ query, headers }) => {
+		.get("/search", async ({ query, headers, set }) => {
 			const sessionContext = getOrCreateSession(headers["x-session-id"]);
 			checkRateLimit(sessionContext.rate_limiter, "query");
 
@@ -400,7 +446,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 				const response = await Effect.runPromise(deps.indexing.search(request));
 				return response;
 			} catch (error) {
-				throw new Error(JSON.stringify(mapToApiError(error)));
+				return handleEffectError(error, set);
 			}
 		})
 
@@ -444,7 +490,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 		})
 
 		// Collection operations
-		.get("/collections", async ({ query }) => {
+		.get("/collections", async ({ query, set }) => {
 			try {
 				const collections = await Effect.runPromise(
 					deps.storage.listCollections({
@@ -454,7 +500,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 				);
 				return { collections };
 			} catch (error) {
-				throw new Error(JSON.stringify(mapToApiError(error)));
+				return handleEffectError(error, set);
 			}
 		})
 
@@ -467,7 +513,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 					);
 					return collection;
 				} catch (error) {
-					throwHttpError(error, set);
+					return handleEffectError(error, set);
 				}
 			},
 			{

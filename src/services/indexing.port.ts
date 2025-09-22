@@ -173,6 +173,15 @@ export interface IndexingPort {
 
 	// Passage operations
 	/**
+	 * Indexes a version to create passages
+	 * SPEC: "Passage chunking policy: max 180 tokens per passage; 50% overlap"
+	 */
+	readonly indexVersion: (
+		version: import("../schema/entities").Version,
+		collection_ids: readonly CollectionId[],
+	) => Effect.Effect<readonly Passage[], IndexingError>;
+
+	/**
 	 * Gets passages for a version
 	 */
 	readonly getVersionPassages: (

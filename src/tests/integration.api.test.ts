@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { Effect } from "effect";
-import { createMemoryStorageAdapter } from "../adapters/storage/memory.adapter";
+import { createPostgresStorageAdapter } from "../adapters/storage/postgres.adapter";
+import { createDatabasePool } from "../adapters/storage/database";
 import { createOramaSearchAdapter } from "../adapters/search/orama.adapter";
 import { createMarkdownParsingAdapter } from "../adapters/parsing/markdown.adapter";
 import { createLocalObservabilityAdapter } from "../adapters/observability/local.adapter";
@@ -9,11 +10,18 @@ import { createKnowledgeApiApp, type ApiAdapterDependencies } from "../adapters/
 describe("API Integration Tests", () => {
 	let deps: ApiAdapterDependencies;
 	let app: any;
+	let db: any;
 
 	beforeAll(async () => {
-		// Create dependencies
+		// Create database pool and storage
+		db = createDatabasePool();
+		
+		// Clean database before tests
+		await db.query("TRUNCATE TABLE collections, notes, drafts, versions, publications CASCADE");
+		
+		// Create dependencies with PostgreSQL
 		deps = {
-			storage: createMemoryStorageAdapter(),
+			storage: createPostgresStorageAdapter(db),
 			indexing: createOramaSearchAdapter(),
 			parsing: createMarkdownParsingAdapter(),
 			observability: createLocalObservabilityAdapter(),
@@ -24,6 +32,13 @@ describe("API Integration Tests", () => {
 
 		// Create API app
 		app = createKnowledgeApiApp(deps);
+	});
+
+	afterAll(async () => {
+		// Clean up database connection
+		if (db) {
+			await Effect.runPromise(db.close());
+		}
 	});
 
 	describe("Health endpoints", () => {

@@ -28,8 +28,9 @@ describe("domain/anchor", () => {
 			const crlfText = "line1\r\nline2\r\nline3";
 			const crText = "line1\rline2\rline3";
 			
-			expect(normalizeText(crlfText)).toBe("line1\nline2\nline3");
-			expect(normalizeText(crText)).toBe("line1\nline2\nline3");
+			// SPEC: collapse runs of whitespace to single space (including newlines)
+			expect(normalizeText(crlfText)).toBe("line1 line2 line3");
+			expect(normalizeText(crText)).toBe("line1 line2 line3");
 		});
 
 		it("collapses whitespace runs", () => {
