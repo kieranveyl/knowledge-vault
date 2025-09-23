@@ -63,7 +63,7 @@ interface SessionContext {
 function getHttpStatusFromError(error: unknown): number {
 	if (typeof error === "object" && error !== null && "_tag" in error) {
 		const taggedError = error as { _tag: string };
-		
+
 		switch (taggedError._tag) {
 			case "NotFound":
 				return 404;
@@ -71,12 +71,15 @@ function getHttpStatusFromError(error: unknown): number {
 				return 400;
 			case "ConflictError":
 				return 409;
-			case "IndexingFailure":
-				return 502; // Bad Gateway
 			case "RateLimitExceeded":
-				return 429; // Too Many Requests
+				return 429;
+			case "IndexingFailure":
+			case "VisibilityTimeout":
+				return 503;
+			case "SchemaVersionMismatch":
+				return 422;
 			default:
-				return 500; // Internal Server Error
+				return 500;
 		}
 	}
 	return 500;
@@ -148,7 +151,7 @@ function mapToApiError(error: unknown): ApiErrorResponse {
 
 	if (typeof error === "object" && error !== null && "_tag" in error) {
 		const taggedError = error as { _tag: string; [key: string]: any };
-		
+
 		switch (taggedError._tag) {
 			case "NotFound":
 				return {
@@ -184,6 +187,28 @@ function mapToApiError(error: unknown): ApiErrorResponse {
 					error: {
 						type: "IndexingFailure",
 						message: taggedError.reason || "Indexing operation failed",
+					},
+				};
+
+			case "VisibilityTimeout":
+				return {
+					error: {
+						type: "VisibilityTimeout",
+						message:
+							taggedError.reason ||
+							`Visibility operation timed out for version ${taggedError.version_id}`,
+						retry_after: taggedError.retry_after,
+					},
+				};
+
+			case "SchemaVersionMismatch":
+				return {
+					error: {
+						type: "SchemaVersionMismatch",
+						message:
+							taggedError.message || "Workspace schema version mismatch",
+						expected: taggedError.expected,
+						actual: taggedError.actual,
 					},
 				};
 			
@@ -421,7 +446,7 @@ export function createApiAdapter(deps: ApiAdapterDependencies): Elysia {
 					note_id: t.String(),
 					collections: t.Array(t.String()),
 					label: t.Optional(t.Union([t.Literal("minor"), t.Literal("major")])),
-					client_token: t.String(),
+					client_token: t.Optional(t.String()),
 				}),
 			},
 		)

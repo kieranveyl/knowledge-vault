@@ -26,6 +26,10 @@ import type {
 	NoteMetadata,
 	Publication,
 	PublicationId,
+	Session,
+	SessionId,
+	Snapshot,
+	SnapshotId,
 	Version,
 	VersionId,
 } from "../../schema/entities";
@@ -39,6 +43,15 @@ import { createKnowledgeApiApp, type ApiAdapterDependencies } from "../../adapte
  * Simple in-memory implementation of StoragePort for integration-style tests.
  * Only behaviours used by the Phase 1 test suites are implemented.
  */
+interface WorkspaceState {
+	readonly notes: Map<NoteId, Note>;
+	readonly drafts: Map<NoteId, Draft>;
+	readonly versions: Map<VersionId, Version>;
+	readonly publications: Map<PublicationId, Publication>;
+	readonly collections: Map<CollectionId, Collection>;
+	readonly collectionMemberships: Map<CollectionId, Set<NoteId>>;
+}
+
 class InMemoryStorageAdapter implements StoragePort {
 	private readonly notes = new Map<NoteId, Note>();
 	private readonly drafts = new Map<NoteId, Draft>();
@@ -48,7 +61,59 @@ class InMemoryStorageAdapter implements StoragePort {
 	private readonly collectionMemberships = new Map<CollectionId, Set<NoteId>>();
 	private readonly publishTokens = new Map<string, PublishResponse & { readonly note_id: NoteId }>();
 	private readonly rollbackTokens = new Map<string, RollbackResponse & { readonly note_id: NoteId }>();
+	private readonly sessions = new Map<SessionId, Session>();
+	private readonly snapshots = new Map<SnapshotId, { snapshot: Snapshot; state: WorkspaceState }>();
 	private initialized = false;
+
+	private captureState(): WorkspaceState {
+		const cloneNotes = new Map<NoteId, Note>(
+			Array.from(this.notes.entries(), ([id, note]) => [id, structuredClone(note)]),
+		);
+		const cloneDrafts = new Map<NoteId, Draft>(
+			Array.from(this.drafts.entries(), ([id, draft]) => [id, structuredClone(draft)]),
+		);
+		const cloneVersions = new Map<VersionId, Version>(
+			Array.from(this.versions.entries(), ([id, version]) => [id, structuredClone(version)]),
+		);
+		const clonePublications = new Map<PublicationId, Publication>(
+			Array.from(this.publications.entries(), ([id, publication]) => [id, structuredClone(publication)]),
+		);
+		const cloneCollections = new Map<CollectionId, Collection>(
+			Array.from(this.collections.entries(), ([id, collection]) => [id, structuredClone(collection)]),
+		);
+		const cloneMemberships = new Map<CollectionId, Set<NoteId>>(
+			Array.from(this.collectionMemberships.entries(), ([id, members]) => [id, new Set(members)]),
+		);
+
+		return {
+			notes: cloneNotes,
+			drafts: cloneDrafts,
+			versions: cloneVersions,
+			publications: clonePublications,
+			collections: cloneCollections,
+			collectionMemberships: cloneMemberships,
+		};
+	}
+
+	private restoreState(state: WorkspaceState) {
+		const assign = <K, V>(target: Map<K, V>, source: Map<K, V>) => {
+			target.clear();
+			for (const [key, value] of source.entries()) {
+				target.set(key, structuredClone(value));
+			}
+		};
+
+		assign(this.notes, state.notes);
+		assign(this.drafts, state.drafts);
+		assign(this.versions, state.versions);
+		assign(this.publications, state.publications);
+		assign(this.collections, state.collections);
+
+		this.collectionMemberships.clear();
+		for (const [collectionId, members] of state.collectionMemberships.entries()) {
+			this.collectionMemberships.set(collectionId, new Set(members));
+		}
+	}
 
 	readonly initializeWorkspace = () =>
 		Effect.sync(() => {
@@ -205,7 +270,13 @@ class InMemoryStorageAdapter implements StoragePort {
 		Effect.sync(() =>
 			Array.from(this.versions.values())
 				.filter((version) => version.note_id === note_id)
-				.sort((a, b) => b.created_at.getTime() - a.created_at.getTime()),
+				.sort((a, b) => {
+					const createdDelta = b.created_at.getTime() - a.created_at.getTime();
+					if (createdDelta !== 0) {
+						return createdDelta;
+					}
+					return b.id.localeCompare(a.id); // ULIDs preserve chronology
+				}),
 		);
 
 	readonly getCurrentVersion = (note_id: NoteId) =>
@@ -221,14 +292,14 @@ class InMemoryStorageAdapter implements StoragePort {
 		request: PublishRequest,
 	) =>
 		Effect.sync(() => {
-			const note = this.notes.get(request.note_id);
-			if (!note) {
-				throw { _tag: "NotFound", entity: "Note", id: request.note_id } satisfies StorageError;
-			}
 			const tokenKey = `publish:${request.client_token}`;
 			const cached = this.publishTokens.get(tokenKey);
 			if (cached) {
 				return cached;
+			}
+			const note = this.notes.get(request.note_id);
+			if (!note) {
+				throw { _tag: "NotFound", entity: "Note", id: request.note_id } satisfies StorageError;
 			}
 			const draft = this.drafts.get(request.note_id);
 			if (!draft) {
@@ -424,16 +495,109 @@ class InMemoryStorageAdapter implements StoragePort {
 			return Array.from(noteIds).map((noteId) => this.notes.get(noteId)!).filter(Boolean);
 		});
 
-	readonly createSession = () => Effect.fail({ _tag: "StorageIOError", cause: "not implemented" });
-	readonly getSession = () => Effect.fail({ _tag: "NotFound", entity: "Session", id: "unknown" });
-	readonly updateSession = () => Effect.fail({ _tag: "StorageIOError", cause: "not implemented" });
-	readonly listSessions = () => Effect.succeed([]);
-	readonly pinSession = () => Effect.succeed(undefined);
-	readonly createSnapshot = () => Effect.fail({ _tag: "StorageIOError", cause: "not implemented" });
-	readonly getSnapshot = () => Effect.fail({ _tag: "NotFound", entity: "Snapshot", id: "unknown" });
-	readonly listSnapshots = () => Effect.succeed([]);
-	readonly restoreSnapshot = () => Effect.fail({ _tag: "StorageIOError", cause: "not implemented" });
-	readonly deleteSnapshot = () => Effect.succeed(undefined);
+	readonly createSession = () =>
+		Effect.sync(() => {
+			const id = `ses_${ulid()}` as SessionId;
+			const now = new Date();
+			const session: Session = {
+				id,
+				started_at: now,
+				steps: [],
+			};
+			this.sessions.set(id, session);
+			return session;
+		});
+
+	readonly getSession = (id: SessionId) =>
+		Effect.sync(() => {
+			const session = this.sessions.get(id);
+			if (!session) {
+				throw { _tag: "NotFound", entity: "Session", id } satisfies StorageError;
+			}
+			return structuredClone(session);
+		});
+
+	readonly updateSession = (
+		id: SessionId,
+		steps: Session["steps"],
+		ended_at?: Date,
+	) =>
+		Effect.sync(() => {
+			const session = this.sessions.get(id);
+			if (!session) {
+				throw { _tag: "NotFound", entity: "Session", id } satisfies StorageError;
+			}
+			const updated: Session = {
+				...session,
+				steps: structuredClone(steps),
+				ended_at: ended_at ?? session.ended_at,
+			};
+			this.sessions.set(id, updated);
+			return updated;
+		});
+
+	readonly listSessions = () =>
+		Effect.sync(() =>
+			Array.from(this.sessions.values())
+				.sort((a, b) => b.started_at.getTime() - a.started_at.getTime())
+				.map((session) => structuredClone(session)),
+		);
+
+	readonly pinSession = (id: SessionId, pinned: boolean) =>
+		Effect.sync(() => {
+			const session = this.sessions.get(id);
+			if (!session) {
+				throw { _tag: "NotFound", entity: "Session", id } satisfies StorageError;
+			}
+			const updated: Session = { ...session, pinned };
+			this.sessions.set(id, updated);
+		});
+	readonly createSnapshot = (
+		scope: string,
+		description?: string,
+	) =>
+		Effect.sync(() => {
+			const id = `snp_${ulid()}` as SnapshotId;
+			const snapshot: Snapshot = {
+				id,
+				scope,
+				description,
+				created_at: new Date(),
+			};
+
+			this.snapshots.set(id, {
+				snapshot,
+				state: this.captureState(),
+			});
+
+			return snapshot;
+		});
+
+	readonly getSnapshot = (id: SnapshotId) =>
+		Effect.sync(() => {
+			const record = this.snapshots.get(id);
+			if (!record) {
+				throw { _tag: "NotFound", entity: "Snapshot", id } satisfies StorageError;
+			}
+			return record.snapshot;
+		});
+
+	readonly listSnapshots = () =>
+		Effect.sync(() => Array.from(this.snapshots.values()).map(({ snapshot }) => snapshot));
+
+	readonly restoreSnapshot = (id: SnapshotId) =>
+		Effect.sync(() => {
+			const record = this.snapshots.get(id);
+			if (!record) {
+				throw { _tag: "NotFound", entity: "Snapshot", id } satisfies StorageError;
+			}
+			this.restoreState(record.state);
+		});
+
+	readonly deleteSnapshot = (id: SnapshotId) =>
+		Effect.sync(() => {
+			this.snapshots.delete(id);
+		});
 	readonly withTransaction = <A>(operation: Effect.Effect<A, StorageError>) => operation;
 	readonly getStorageHealth = () => Effect.succeed({ status: "healthy" as const });
 	readonly performMaintenance = () => Effect.succeed(undefined);
@@ -457,7 +621,12 @@ class FakeIndexingAdapter implements IndexingPort {
 
 	readonly enqueueVisibilityEvent = (event: VisibilityEvent) =>
 		Effect.sync(() => {
-			this.events.push(event);
+			const alreadyRecorded = this.events.some(
+				(existing) => existing.version_id === event.version_id && existing.op === event.op,
+			);
+			if (!alreadyRecorded) {
+				this.events.push(event);
+			}
 		});
 
 	readonly search = (request: SearchRequest) =>
